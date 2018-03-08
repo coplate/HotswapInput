@@ -1,0 +1,330 @@
+#!/bin/bash
+# Author: Nadim Awad <nawad@lab126.com>
+# Automatically generates the xorg.conf file based on available input devices
+# The script also outputs a status report of the detected input devices based
+# on what is expected for the given platform
+
+source /etc/upstart/functions
+
+XCONFFILE=/var/local/xorg.conf
+XCONFLINK=/etc/xorg.conf
+FLOG='f_log I X makexconfig'
+
+IS_TOUCH=""
+IS_ACCEL=""
+IS_KEYPAD=""
+IS_MOUSE=""
+
+# Initialize output file
+init_xconf_file()
+{
+  echo -n "" > $XCONFFILE
+}
+
+# Output standard server flags
+server_flags()
+{
+  echo 'Section "Serverflags"' >> $XCONFFILE
+  echo '      Option          "DontZap"               "true"' >> $XCONFFILE
+  echo '      Option          "DontVTSwitch"  "true"' >> $XCONFFILE
+  echo '      Option          "DontZoom"              "true"' >> $XCONFFILE
+  echo '      Option          "BlankTime"     "0"' >> $XCONFFILE
+  echo '      Option          "StandbyTime"   "0"' >> $XCONFFILE
+  echo '      Option          "SuspendTime"   "0"' >> $XCONFFILE
+  echo '      Option          "OffTime"               "0"' >> $XCONFFILE
+  echo '      Option          "NoPM"                  "true"'>> $XCONFFILE
+  echo '      Option          "IgnoreABI"    "true"' >> $XCONFFILE 
+  echo 'EndSection' >> $XCONFFILE
+  echo '' >> $XCONFFILE
+}
+
+# Output screen
+server_screen()
+{
+  echo 'Section "Screen"'>> $XCONFFILE 
+  echo '        Identifier      "Kscreen"'>> $XCONFFILE 
+  echo '        Device          "eink"'>> $XCONFFILE 
+  echo '        Monitor         "EinkPanel"'>> $XCONFFILE
+  echo '        SubSection      "Display"'>> $XCONFFILE 
+  echo '                Depth   8'>> $XCONFFILE 
+  echo '                Visual  "StaticGray"'>> $XCONFFILE 
+  echo '        EndSubSection'>> $XCONFFILE 
+  echo 'EndSection'>> $XCONFFILE 
+  echo '' >> $XCONFFILE
+}
+
+# Output monitor
+server_monitor()
+{
+	PHY_X="$(devcap-get-feature -i screen.physical width)"
+	PHY_Y="$(devcap-get-feature -i screen.physical height)"
+	echo 'Section "Monitor"'>> $XCONFFILE
+	echo '        Identifier       "EinkPanel"'>> $XCONFFILE
+	echo "        DisplaySize      $PHY_X $PHY_Y">>$XCONFFILE
+	echo 'EndSection'>> $XCONFFILE
+	echo '' >> $XCONFFILE
+}
+
+# Output eink device
+eink_device()
+{
+  echo 'Section "Device"' >> $XCONFFILE
+  echo '        Identifier  "eink"' >> $XCONFFILE 
+  echo '        Driver      "imx"' >> $XCONFFILE 
+  echo '        Option      "fbdev" "/dev/fb0"' >> $XCONFFILE 
+  echo '        Option      "FormatEPDC" "Y8"' >> $XCONFFILE
+  # On Yoshi display is flipped         
+  if [ "$(f_board)" = "yoshi" -o "$(f_platform)" = "yoshime" -o "$(f_platform)" = "yoshime3" ]; then
+    echo '        Option      "Rotate"  "CCW"' >> $XCONFFILE
+  elif [ "$(f_platform)" = "wario" ]; then
+    echo '        Option      "Rotate"  "CCW"' >> $XCONFFILE
+  elif [ "$(f_platform)" = "duet" ]; then
+    echo '        Option      "Rotate"  "UR"' >> $XCONFFILE
+  fi
+  # Only whiskey has accelerometer as of now. 
+  if [ "$(f_board)" = "whisky" ]; then
+    echo '        Option      "NoAccel" "false"' >> $XCONFFILE
+  else 
+    echo '        Option      "NoAccel" "true"' >> $XCONFFILE
+  fi
+  echo '        Option      "BackingStore" "true"' >> $XCONFFILE
+  echo 'EndSection' >> $XCONFFILE 
+  echo '' >> $XCONFFILE
+}
+
+# Output whitney button keypad
+keypad()
+{
+  IS_KEYPAD=keypad
+
+  echo 'Section "InputDevice"' >> $XCONFFILE
+  echo "      Identifier      \"$IS_KEYPAD\"" >> $XCONFFILE
+  echo '      Driver          "evdev"' >> $XCONFFILE
+  echo "      Option          \"Device\" \"$1\"" >> $XCONFFILE
+  echo '      Option          "CoreKeyboard"' >> $XCONFFILE
+  echo '      Option          "AlwaysCore"' >> $XCONFFILE
+  echo 'EndSection' >> $XCONFFILE
+  echo '' >> $XCONFFILE
+}
+
+# Output accelerometer device
+accelerometer()
+{
+  IS_ACCEL=bma_interrupt
+
+  echo 'Section "InputClass"' >> $XCONFFILE
+  echo '        Identifier "bma2x2intdev"   ' >> $XCONFFILE
+  echo '        Driver "bma2x2intdev"       ' >> $XCONFFILE
+  echo '        MatchProduct "bma_interrupt"' >> $XCONFFILE
+  echo '        Option "SendCoreEvents"     ' >> $XCONFFILE
+  echo 'EndSection' >> $XCONFFILE
+  echo '' >> $XCONFFILE
+}
+
+fsr()
+{
+  IS_FSR=fsr
+	
+  echo 'Section "InputDevice"' >> $XCONFFILE
+  echo "        Identifier \"$IS_FSR\"" >> $XCONFFILE
+  echo '        Driver  "fsrdev"' >> $XCONFFILE
+  echo "        Option \"Device\" \"$1\"" >> $XCONFFILE
+  echo 'EndSection' >> $XCONFFILE
+  echo '' >> $XCONFFILE
+}
+
+# Output multitouch device
+multitouch()
+{
+  IS_TOUCH=multitouch
+#echo 'Section "InputClass"' >> $XCONFFILE
+#echo '    Identifier "evdev pointer tweaked catchall"' >> $XCONFFILE
+#echo '    MatchIsTouchpad "on"' >> $XCONFFILE
+#echo '    Driver "evdev"' >> $XCONFFILE
+  echo 'Section "InputDevice"' >> $XCONFFILE
+  echo "        Identifier      \"$IS_TOUCH\"" >> $XCONFFILE  
+#  echo "        MatchIsTouchpad \"on\"" >> $XCONFFILE
+  echo '        Driver          "multitouch"' >> $XCONFFILE 
+  echo "        Option          \"Device\" \"$1\"" >> $XCONFFILE
+  echo '        Option          "CorePointer"' >> $XCONFFILE 
+  echo '        Option          "AlwaysCore"' >> $XCONFFILE 
+  echo '        Option          "AccelerationProfile" "-1"' >> $XCONFFILE 
+  echo '        Option          "AccelerationScheme" "none"' >> $XCONFFILE 
+  echo '        Option          "AccelerationNumberator" "1"' >> $XCONFFILE 
+  echo '        Option          "AcceleartionDenominator" "1"' >> $XCONFFILE 
+  echo '        Option          "AccelerationThreshold" "1"' >> $XCONFFILE
+  echo '        Option          "XkbRules" "evdev"' >> $XCONFFILE
+  echo '        Option          "XkbModel" "evdev"' >> $XCONFFILE
+  echo '        Option          "XkbLayout" "us"' >> $XCONFFILE
+  if [ "$(f_platform)" = "yoshime3" -o "$(f_platform)" = "wario" -o "$(f_platform)" = "duet" ]; then
+    echo '        Option          "ScreenShot" "1"' >> $XCONFFILE
+  fi
+  if [ "$(devcap-get-feature -a touch.gripsuppr)" -eq "1" ]; then
+    echo '        Option          "GripSuppr" "1"' >> $XCONFFILE
+  fi
+  if [ "$(devcap-get-feature -a touch.multitouch)" -eq "1" ]; then
+    echo '        Option          "multitouch" "1"' >> $XCONFFILE
+  fi
+
+  # Have GestureEngine monitor keypad events
+  if [ "$(devcap-get-feature -i button.keypad fsr)" -eq "1" ]; then
+    for i in /dev/input/event*; do
+      NAME=`evtest info $i | grep "Input device name:" | awk '{ print $4 }' | sed 's/"//g'`
+      case "$NAME" in
+        fsr_keypad)
+        echo "        Option          \"Keypad\" \"$i\"" >> $XCONFFILE ; break ;;
+      esac
+    done
+  fi
+
+  echo 'EndSection' >> $XCONFFILE 
+  echo '' >> $XCONFFILE
+
+echo 'Section "InputDevice"' >> $XCONFFILE
+echo 'Identifier "mouse"' >> $XCONFFILE  
+echo 'Driver "mouse"' >> $XCONFFILE  
+echo 'Option "Device" "/dev/input/mice"' >> $XCONFFILE  
+#echo 'Option "Name" "Riitek Micro Keyboard"' >> $XCONFFILE  
+echo 'Option "SendCoreEvents" "on"' >> $XCONFFILE  
+echo 'EndSection' >> $XCONFFILE  
+  
+  
+  
+  
+
+  
+#echo 'Section "InputDevice"' >> $XCONFFILE
+#echo 'Identifier "mouse"' >> $XCONFFILE
+#echo 'Driver "evdev"' >> $XCONFFILE
+#echo 'Option "Device" "/dev/input/event3"' >> $XCONFFILE
+##echo 'Option "Name" "Riitek Micro Keyboard"' >> $XCONFFILE
+#echo 'Option "SendCoreEvents" "on"' >> $XCONFFILE
+#echo 'EndSection' >> $XCONFFILE
+
+}
+
+# Scan for input device and call associate output function
+do_input()
+{
+  for i in /dev/input/event*; do
+    NAME=`evtest info $i | grep "Input device name:" | awk '{ print $4 }' | sed 's/"//g'`
+    case "$NAME" in
+      whitney-button) keypad $i $NAME ;;
+      gpiokey) keypad $i $NAME ;;
+      fsr_keypad) fsr $i $NAME ;;
+      mxckpd) keypad $i $NAME ;;
+      mma8453) accelerometer $i $NAME ;;
+      mma8653) accelerometer $i $NAME ;;
+      bma2x2) accelerometer $i $NAME ;;
+      zforce) multitouch $i $NAME ;;
+      zforce2) multitouch $i $NAME ;;
+      cyttsp) multitouch $i $NAME ;;
+      cyttsp4_mt) multitouch $i $NAME ;;
+    esac
+  done
+}
+
+# Set server layout based on what was detected
+server_layout()
+{
+  echo 'Section "ServerLayout"' >> $XCONFFILE 
+  echo '  Identifier "Kindle"' >> $XCONFFILE 
+  echo '  Screen "Kscreen"' >> $XCONFFILE
+  if [ -n "$IS_KEYPAD" ]; then
+    echo "  InputDevice \"$IS_KEYPAD\"" >> $XCONFFILE 
+  fi
+  if [ -n "$IS_TOUCH" ]; then
+    echo "  InputDevice \"$IS_TOUCH\"" >> $XCONFFILE
+    echo "  InputDevice \"mouse\" \"SendCoreEvents\"" >> $XCONFFILE
+  fi
+  if [ -n "$IS_FSR" ]; then
+    echo "  InputDevice \"$IS_FSR\"">> $XCONFFILE
+  fi
+  echo 'EndSection' >> $XCONFFILE 
+  echo '' >> $XCONFFILE
+}
+
+# Information header
+header()
+{
+  echo '# Automatically generated by makexconfig' >> $XCONFFILE
+}
+
+# Output whitney detection status
+do_whitney_status()
+{
+  $FLOG 'Whitney Input device detection status'
+  if [ -z "$IS_KEYPAD" ]; then $FLOG 'Keypad: N/A !!'; else $FLOG 'Keypad: OK'; fi
+  if [ -z "$IS_TOUCH" ]; then $FLOG 'Touch device: N/A !!'; else $FLOG 'Touch device: OK'; fi
+  if [ -z "$IS_ACCEL" ]; then $FLOG 'Accelerometer device: N/A !!'; else $FLOG 'Accelerometer device: OK'; fi
+}
+
+# Output yoshi detection status
+do_yoshi_status()
+{
+  $FLOG 'Yoshi Input device detection status'
+  if [ -z "$IS_KEYPAD" ]; then $FLOG 'Keypad: N/A !!'; else $FLOG 'Keypad: OK'; fi
+  # Board might not have touch plugged in but report it anyway
+  if [ -z "$IS_TOUCH" ]; then $FLOG 'Touch device: N/A !!'; else $FLOG 'Touch device: OK'; fi
+  # No accelerometer on Yoshi 3s
+  if [ "$(f_rev)" != "3" ]; then
+    if [ -z "$IS_ACCEL" ]; then $FLOG 'Accelerometer device: N/A !!'; else $FLOG 'Accelerometer device: OK'; fi
+  fi
+}
+
+# Output yoshime detection status
+do_yoshime_status()
+{
+  $FLOG 'Yoshime Input device detection status'
+  # Board might not have touch plugged in but report it anyway
+  if [ -z "$IS_TOUCH" ]; then $FLOG 'Touch device: N/A !!'; else $FLOG 'Touch device: OK'; fi
+  # No accelerometer on Yoshi 3s
+  if [ -z "$IS_ACCEL" ]; then $FLOG 'Accelerometer device: N/A !!'; else $FLOG 'Accelerometer device: OK'; fi
+}
+
+# Output celeste detection status
+do_celeste_status()
+{
+  $FLOG 'Celeste Input device detection status'
+  # Board might not have touch plugged in but report it anyway
+  if [ -z "$IS_TOUCH" ]; then $FLOG 'Touch device: N/A !!'; else $FLOG 'Touch device: OK'; fi
+  # No accelerometer on Yoshi 3s
+  if [ -z "$IS_ACCEL" ]; then $FLOG 'Accelerometer device: N/A !!'; else $FLOG 'Accelerometer device: OK'; fi
+}
+
+# Send the status report
+do_status_report()
+{
+  case "$(f_board)" in
+    whitney) do_whitney_status ;;
+    yoshi) do_yoshi_status ;;
+    yoshime) do_yoshime_status ;;
+    celeste) do_celeste_status ;;
+  esac
+}
+
+# Create the configuration file
+make_x_configuration()
+{
+  init_xconf_file
+  header
+
+  # Commun server flags
+  server_flags
+
+  # Display
+  server_monitor
+  server_screen
+  eink_device    
+
+  # Input devices
+  do_input
+
+  # Finish with server layout
+  server_layout
+
+  # Output a status report of configured input devices
+  do_status_report
+}
+
+make_x_configuration
