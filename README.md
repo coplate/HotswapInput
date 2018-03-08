@@ -13,3 +13,5 @@ makexconfig is a replacement of the makexconfig from kindle paperwhite 2015 ca. 
 This works in conjunction with pointer.c to let you control the actual screen with a mouse pointer.
 
 pointer.c is a program that will continously draw and refresh an area of the e-ink screen around the current mouse pointer.  Allowing you to control a kindle with a broken touch screen.
+
+I cannot find the makefile I used for this, but it shoudl be a pretty standard kindle makefile with X11, see the makefile for kindlelazy
