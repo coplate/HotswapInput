@@ -4,6 +4,7 @@
 # The script also outputs a status report of the detected input devices based
 # on what is expected for the given platform
 
+# Edited to include hot swappable keyboard and mouse
 source /etc/upstart/functions
 
 XCONFFILE=/var/local/xorg.conf
@@ -80,6 +81,8 @@ eink_device()
     echo '        Option      "Rotate"  "CCW"' >> $XCONFFILE
   elif [ "$(f_platform)" = "duet" ]; then
     echo '        Option      "Rotate"  "UR"' >> $XCONFFILE
+  elif [ "$(f_platform)" = "heisenberg" ]; then
+    echo '        Option      "Rotate"  "CCW"' >> $XCONFFILE
   fi
   # Only whiskey has accelerometer as of now. 
   if [ "$(f_board)" = "whisky" ]; then
@@ -107,6 +110,19 @@ keypad()
   echo '' >> $XCONFFILE
 }
 
+# Output whitney button keypad
+mouse()
+{
+  IS_MOUSE=mouse
+
+  echo 'Section "InputDevice"' >> $XCONFFILE
+  echo "      Identifier      \"$IS_MOUSE\"" >> $XCONFFILE
+  echo '      Driver          "evdev"' >> $XCONFFILE
+  echo "      Option          \"Device\" \"$1\"" >> $XCONFFILE
+  echo '      Option          "SendCoreEvents" "on"' >> $XCONFFILE
+  echo 'EndSection' >> $XCONFFILE
+  echo '' >> $XCONFFILE
+}
 # Output accelerometer device
 accelerometer()
 {
@@ -137,13 +153,9 @@ fsr()
 multitouch()
 {
   IS_TOUCH=multitouch
-#echo 'Section "InputClass"' >> $XCONFFILE
-#echo '    Identifier "evdev pointer tweaked catchall"' >> $XCONFFILE
-#echo '    MatchIsTouchpad "on"' >> $XCONFFILE
-#echo '    Driver "evdev"' >> $XCONFFILE
+
   echo 'Section "InputDevice"' >> $XCONFFILE
   echo "        Identifier      \"$IS_TOUCH\"" >> $XCONFFILE  
-#  echo "        MatchIsTouchpad \"on\"" >> $XCONFFILE
   echo '        Driver          "multitouch"' >> $XCONFFILE 
   echo "        Option          \"Device\" \"$1\"" >> $XCONFFILE
   echo '        Option          "CorePointer"' >> $XCONFFILE 
@@ -156,7 +168,7 @@ multitouch()
   echo '        Option          "XkbRules" "evdev"' >> $XCONFFILE
   echo '        Option          "XkbModel" "evdev"' >> $XCONFFILE
   echo '        Option          "XkbLayout" "us"' >> $XCONFFILE
-  if [ "$(f_platform)" = "yoshime3" -o "$(f_platform)" = "wario" -o "$(f_platform)" = "duet" ]; then
+  if [ "$(f_platform)" = "yoshime3" -o "$(f_platform)" = "wario" -o "$(f_platform)" = "duet" -o "$(f_platform)" = "heisenberg" ]; then
     echo '        Option          "ScreenShot" "1"' >> $XCONFFILE
   fi
   if [ "$(devcap-get-feature -a touch.gripsuppr)" -eq "1" ]; then
@@ -179,28 +191,6 @@ multitouch()
 
   echo 'EndSection' >> $XCONFFILE 
   echo '' >> $XCONFFILE
-
-echo 'Section "InputDevice"' >> $XCONFFILE
-echo 'Identifier "mouse"' >> $XCONFFILE  
-echo 'Driver "mouse"' >> $XCONFFILE  
-echo 'Option "Device" "/dev/input/mice"' >> $XCONFFILE  
-#echo 'Option "Name" "Riitek Micro Keyboard"' >> $XCONFFILE  
-echo 'Option "SendCoreEvents" "on"' >> $XCONFFILE  
-echo 'EndSection' >> $XCONFFILE  
-  
-  
-  
-  
-
-  
-#echo 'Section "InputDevice"' >> $XCONFFILE
-#echo 'Identifier "mouse"' >> $XCONFFILE
-#echo 'Driver "evdev"' >> $XCONFFILE
-#echo 'Option "Device" "/dev/input/event3"' >> $XCONFFILE
-##echo 'Option "Name" "Riitek Micro Keyboard"' >> $XCONFFILE
-#echo 'Option "SendCoreEvents" "on"' >> $XCONFFILE
-#echo 'EndSection' >> $XCONFFILE
-
 }
 
 # Scan for input device and call associate output function
@@ -209,10 +199,10 @@ do_input()
   for i in /dev/input/event*; do
     NAME=`evtest info $i | grep "Input device name:" | awk '{ print $4 }' | sed 's/"//g'`
     case "$NAME" in
-      whitney-button) keypad $i $NAME ;;
-      gpiokey) keypad $i $NAME ;;
+      #whitney-button) keypad $i $NAME ;;
+      #gpiokey) keypad $i $NAME ;;
       fsr_keypad) fsr $i $NAME ;;
-      mxckpd) keypad $i $NAME ;;
+      #mxckpd) keypad $i $NAME ;;
       mma8453) accelerometer $i $NAME ;;
       mma8653) accelerometer $i $NAME ;;
       bma2x2) accelerometer $i $NAME ;;
@@ -220,6 +210,8 @@ do_input()
       zforce2) multitouch $i $NAME ;;
       cyttsp) multitouch $i $NAME ;;
       cyttsp4_mt) multitouch $i $NAME ;;
+      tmouse) mouse $i $NAME ;;
+      tkbd) mouse $i $NAME ;;
     esac
   done
 }
@@ -233,9 +225,12 @@ server_layout()
   if [ -n "$IS_KEYPAD" ]; then
     echo "  InputDevice \"$IS_KEYPAD\"" >> $XCONFFILE 
   fi
+  if [ -n "$IS_MOUSE" ]; then
+    echo "  InputDevice \"$IS_MOUSE\" \"SendCoreEvents\"" >> $XCONFFILE 
+  fi
+  
   if [ -n "$IS_TOUCH" ]; then
     echo "  InputDevice \"$IS_TOUCH\"" >> $XCONFFILE
-    echo "  InputDevice \"mouse\" \"SendCoreEvents\"" >> $XCONFFILE
   fi
   if [ -n "$IS_FSR" ]; then
     echo "  InputDevice \"$IS_FSR\"">> $XCONFFILE
@@ -328,3 +323,4 @@ make_x_configuration()
 }
 
 make_x_configuration
+
